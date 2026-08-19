@@ -9,6 +9,11 @@ description: Ghidra を使った Windows バイナリ (DLL / EXE, x86 / x64) の
 C 相当のソースへ復元するためのスキル。**まず「ツールの場所」を確認 → 「標準ワークフロー」
 を上から実行** する。同梱ヘルパは `scripts/` にある (実行前に一度 Read して中身を把握してよい)。
 
+> スクリプトの場所: プラグインとして導入した場合は `${CLAUDE_PLUGIN_ROOT}` が
+> プラグインのルートを指す。この変数が使えない置き方をしている場合は、
+> **この SKILL.md と同じ階層の `scripts/`** に読み替える。
+
+
 ## ツールの場所 (この環境)
 
 - **objdump / strings / nm**: `/c/msys64/usr/bin/`。PATH 未追加なので毎回
@@ -36,12 +41,12 @@ strings -a -e l TARGET.dll | sort -u                              # wide: TJS文
 
 ### 1. 全関数デコンパイル + vtable 地図 (Ghidra headless)
 ```bash
-bash "<skill>/scripts/ghidra_analyze.sh"  /abs/path/TARGET.dll  <out_dir>
+bash "${CLAUDE_PLUGIN_ROOT}/skills/ghidra/scripts/ghidra_analyze.sh"  /abs/path/TARGET.dll  <out_dir>
 ```
 これで `<out>/TARGET_dll_decomp.c` (全関数の C) と `<out>/TARGET_dll_vtables.txt`
 (RTTI vftable → 各仮想関数アドレス) が出る。プロジェクトは保持され、スクリプト再実行は高速。
 - デコンパイル C は **文字列リテラルが `L"time"` 等そのまま可読**。
-- vtable が空(スロット0行)なら fallback: `python "<skill>/scripts/read_vtables_from_dll.py"
+- vtable が空(スロット0行)なら fallback: `python "${CLAUDE_PLUGIN_ROOT}/skills/ghidra/scripts/read_vtables_from_dll.py"
   TARGET.dll <vtables.txt> --methods prov`  (DLL の生バイトから関数ポインタを直読み)。
 
 ### 2. クラス→メソッド→FUN_アドレスの地図を作る
@@ -53,7 +58,7 @@ bash "<skill>/scripts/ghidra_analyze.sh"  /abs/path/TARGET.dll  <out_dir>
 
 ### 3. 関数を読む
 ```bash
-bash "<skill>/scripts/extract_func.sh" FUN_10017cd0 <decomp.c>   # 1関数を抜き出す
+bash "${CLAUDE_PLUGIN_ROOT}/skills/ghidra/scripts/extract_func.sh" FUN_10017cd0 <decomp.c>   # 1関数を抜き出す
 ```
 - `options->GetValue(L"name",&v)` は `(**(code**)(*opt + 0x10))(opt, L"name", &v)` の形で現れる。
 - コンストラクタは `*(this)=vftable; ... operator new(サイズ)` → **構造体バイト数**が分かる。

@@ -16,8 +16,12 @@ description: Backlog (ヌーラボ) の課題管理に API v2 経由でアクセ
 
 ## 起動コマンドの定型
 
+> スクリプトの場所: プラグインとして導入した場合は `${CLAUDE_PLUGIN_ROOT}` が
+> プラグインのルートを指す。この変数が使えない置き方をしている場合は、
+> **この SKILL.md と同じ階層の `scripts/`** に読み替える。
+
 ```bash
-python "$HOME/.claude/skills/backlog/scripts/backlog.py" <サブコマンド> [オプション]
+python "${CLAUDE_PLUGIN_ROOT}/skills/backlog/scripts/backlog.py" <サブコマンド> [オプション]
 ```
 
 Windows (PowerShell ツール) から呼ぶ場合:
@@ -115,7 +119,7 @@ API キーは各スペースの **[個人設定] → [API] → 登録** で発�
 ### よく使う例
 
 ```bash
-S="$HOME/.claude/skills/backlog/scripts/backlog.py"
+S="${CLAUDE_PLUGIN_ROOT}/skills/backlog/scripts/backlog.py"
 
 python "$S" spaces                              # 設定済みスペースの確認
 python "$S" me                                  # 疎通確認 (既定スペース)

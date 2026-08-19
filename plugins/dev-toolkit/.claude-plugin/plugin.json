@@ -1,6 +1,6 @@
 {
   "name": "dev-toolkit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Windows 開発まわりの汎用スキル集 — プロセスのライフサイクル管理 (appctl)、MSYS2 でのシェル操作 (msys2)、Ghidra による逆解析 (ghidra)、Backlog の課題管理 (backlog)",
   "author": { "name": "Go Watanabe" },
   "homepage": "https://github.com/wtnbgo/claude-skills",

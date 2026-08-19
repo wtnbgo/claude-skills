@@ -42,9 +42,13 @@ bash <このスキル>/scripts/appctl.sh list   <名前や部分パス>  # 読�
 
 ### 使用例
 
+> スクリプトの場所: プラグインとして導入した場合は `${CLAUDE_PLUGIN_ROOT}` が
+> プラグインのルートを指す。この変数が使えない置き方をしている場合は、
+> **この SKILL.md と同じ階層の `scripts/`** に読み替える。
+
 ```bash
 export APPCTL_DIR="$SCRATCHPAD/appctl"
-S=~/.claude/skills/appctl/scripts/appctl.sh
+S="${CLAUDE_PLUGIN_ROOT}/skills/appctl/scripts/appctl.sh"
 
 bash "$S" start app "C:/path/to/MyApp.exe" --some-flag --port=8080
 bash "$S" alive app && echo "起動している"
