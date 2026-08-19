@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "wtnbgo-skills",
+  "description": "Claude Code skills for Windows development: process lifecycle management, MSYS2 shell work, Ghidra reverse engineering, and Backlog issue tracking",
+  "owner": {
+    "name": "Go Watanabe",
+    "url": "https://github.com/wtnbgo"
+  },
+  "plugins": [
+    {
+      "name": "dev-toolkit",
+      "description": "Windows 開発まわりの汎用スキル集 — プロセスのライフサイクル管理 (appctl)、MSYS2 でのシェル操作 (msys2)、Ghidra による逆解析 (ghidra)、Backlog の課題管理 (backlog)",
+      "author": { "name": "Go Watanabe" },
+      "source": "./plugins/dev-toolkit",
+      "category": "productivity",
+      "homepage": "https://github.com/wtnbgo/claude-skills"
+    }
+  ]
+}
