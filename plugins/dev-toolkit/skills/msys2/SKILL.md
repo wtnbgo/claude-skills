@@ -34,6 +34,11 @@ MSYSTEM=MSYS /c/msys64/usr/bin/bash.exe -lc '<コマンド>'
 - `-l` ( ログインシェル ) で `/etc/profile` が読まれ、PATH が `/usr/bin`
   → `/usr/local/bin` の順に整う。**`-l` なし** だと PATH は呼び出し元の
   Windows PATH のままで、Git Bash のバイナリが先に来る ( ハマる )。
+- **★`-l` を付けると `$HOME` へ cd される**。Bash ツールの cwd は引き継が
+  れないので、**リポジトリ相対でファイルを触るなら明示的に `cd` する**:
+  `MSYSTEM=MSYS /c/msys64/usr/bin/bash.exe -lc 'cd /d/work/proj && ./x.sh'`。
+  cwd を保ちたいからと `-l` を落とすと Git Bash に落ちる ( 下記「作業
+  ディレクトリ」参照 )。両立させるには `-lc` + 明示 cd が正解。
 - `-c '...'` のシングルクォート優先。中に変数展開や `$(...)` を入れる
   ときは bash 側で展開させる。PowerShell 経由ではなく Bash ツール直接
   呼びなので、外側の二重展開を気にしなくてよい。
@@ -67,19 +72,38 @@ $env:MSYSTEM='MSYS'; & C:\msys64\usr\bin\bash.exe -c 'cd /d/... && make ...'
 
 ### 作業ディレクトリ
 
-Bash ツールは `cwd` を引き継ぐが、msys2 から見ると Unix パス
-(`/d/test/xxx`) になる。`cd` 不要 ( 既に対象 dir に居る ) だが、絶対パス
-を書くなら Unix 表記。Windows 表記が必要なら `cygpath -w` で変換 ( 後述 )。
+**基本形 (`-lc`) はログインシェルなので `$HOME` に cd される。Bash ツールの
+cwd は引き継がれない**。相対パスでスクリプトやファイルを指すと
+`No such file or directory` になる ( 2026-08-19 に実際に踏んだ )。
+
+```sh
+# ✗ 相対パスは HOME 起点になって落ちる
+MSYSTEM=MSYS /c/msys64/usr/bin/bash.exe -lc 'bash tools/x.sh'
+# ✓ 明示的に cd する
+MSYSTEM=MSYS /c/msys64/usr/bin/bash.exe -lc 'cd /d/work/proj && bash tools/x.sh'
+```
+
+**`-l` を外して cwd を保つ、はやってはいけない**。`-c` だと cwd は残るが
+PATH が呼び出し元 (Git Bash) のままで、`sed` / `find` / `grep` が
+`C:\Program Files\Git\usr\bin\*.exe` に解決される ( 実測 )。挙動差
+( `find -printf`、`sed -i` のバックアップ拡張 等 ) を静かに踏む。
+
+パスは Unix 表記 (`/d/test/xxx`)。Windows 表記が必要なら `cygpath -w` で
+変換 ( 後述 )。
 
 ### 動作確認の 1 行
 
 ```sh
-MSYSTEM=MSYS /c/msys64/usr/bin/bash.exe -lc 'echo "$MSYSTEM | $(uname -s) | $(which sed grep awk | tr "\n" " ")"'
+MSYSTEM=MSYS /c/msys64/usr/bin/bash.exe -lc 'echo "$MSYSTEM | $(uname -s) | $(cygpath -w "$(which sed)")"'
 ```
 
-期待出力例: `MSYS | MSYS_NT-10.0-26200 | /usr/bin/sed /usr/bin/grep /usr/bin/awk`
-( `which` の結果が `/usr/bin/...` でなく Git の `/mingw64/bin/...` 等に
-なっていたら起動定型が崩れている。`MSYSTEM` と `-l` を確認 )
+期待出力例: `MSYS | MSYS_NT-10.0-26200 | C:\msys64\usr\bin\sed.exe`
+
+**★裸の `which` で判定してはいけない**。msys2 の mount table は `/usr/bin`
+を自分の `C:\msys64\usr\bin` に写すため、Git Bash の PATH を引きずったまま
+(`-l` 無し) でも `which sed` は `/usr/bin/sed` と表示する。**`cygpath -w` を
+通して実体の Windows パスを見る**こと。`C:\Program Files\Git\...` が出たら
+起動定型が崩れている ( `MSYSTEM` と `-l` を確認 )。
 
 ## PATH の落とし穴 ( 必読 )
 
@@ -326,8 +350,9 @@ tmp=$(mktemp); some_unix_cmd > "$tmp"; native.exe "$(cygpath -w "$tmp")"; rm "$t
 ## デバッグ / 困ったときの確認順
 
 1. `MSYSTEM` と `uname -s` を出力する。期待値とずれていないか。
-2. `which <コマンド>` で実体パスを見る。Git Bash 側 / Windows 側を踏んで
-   いないか。
+2. `cygpath -w "$(which <コマンド>)"` で実体パスを見る。Git Bash 側 /
+   Windows 側を踏んでいないか。裸の `which` は mount table のせいで
+   Git Bash のものでも `/usr/bin/...` と出るため判定に使えない。
 3. `echo "$PATH" | tr : '\n' | head` で PATH の先頭を見る。`/usr/bin` や
    `/ucrt64/bin` が先頭に近いか。
 4. ファイルが絡む話なら `file <path>` `ls -la <path>` で実体と権限と
@@ -343,6 +368,8 @@ tmp=$(mktemp); some_unix_cmd > "$tmp"; native.exe "$(cygpath -w "$tmp")"; rm "$t
   ずれる。
 - **`bash` を `/c/msys64/usr/bin/bash.exe` 以外で呼ぶ**。`bash` 素呼びは
   Git Bash を引く可能性がある。
+- **cwd を保ちたいからと `-l` を落とす**。PATH が Git Bash のままになる。
+  `-lc` + 明示 `cd` が正解 ( 「作業ディレクトリ」参照 )。
 - **手で `\` を `/` に置換してパス変換した気になる**。`cygpath` を使う。
 - **`pacman -Syu` を実行して途中で止める**。pacman 自身が更新された場合
   シェルを閉じて再起動が要求される ( メッセージに従う )。
