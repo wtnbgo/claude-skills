@@ -679,13 +679,75 @@ def require_yes(a, what):
         die(f"書き込み操作 ({what}) には --yes が必要です。ユーザの明示的な指示なしに実行しないこと。")
 
 
+def resolve_notify_users(issue_key, body, names, auto=True):
+    """コメントのお知らせ先 (notifiedUserId[]) を決める。
+
+    本文に "@名前" と書いただけでは Backlog はお知らせを送らず、表示もリンクにならない。
+    Web 画面の @ 補完はお知らせ先も同時に設定しているので、API では
+    notifiedUserId[] を明示して渡す必要がある。
+
+    - names: --notify で指定された名前 (完全一致 → 部分一致) または数値 id
+    - auto: 本文中の "@名前" / "@ログインID" をプロジェクト参加者と照合して加える
+    戻り値は [(id, 表示名), ...]。自分自身は除く。
+    """
+    proj = issue_key.rsplit("-", 1)[0]
+    users = api("GET", f"/projects/{proj}/users")
+    me = myself_id()
+    picked = {}
+
+    for who in names or []:
+        who = who.strip().lstrip("@")
+        if who.isdigit():
+            hit = [u for u in users if str(u["id"]) == who]
+        else:
+            hit = [u for u in users if who in (u.get("name"), u.get("userId"))]
+            if not hit:
+                hit = [u for u in users if who.lower() in (u.get("name") or "").lower()]
+        if not hit:
+            die(f"お知らせ先 '{who}' が見つかりません: {[u.get('name') for u in users]}")
+        if len(hit) > 1:
+            die(f"お知らせ先 '{who}' が複数該当します: {[u.get('name') for u in hit]}")
+        picked[hit[0]["id"]] = hit[0].get("name")
+
+    if auto and body:
+        # 長い名前から照合し、照合した部分は消す ("@谷" が "@谷昭仁" に誤一致しないように)
+        rest = body
+        cands = []
+        for u in users:
+            for label in (u.get("name"), u.get("userId")):
+                if label:
+                    cands.append((label, u))
+        for label, u in sorted(cands, key=lambda c: -len(c[0])):
+            tag = "@" + label
+            if tag in rest:
+                picked[u["id"]] = u.get("name")
+                rest = rest.replace(tag, "")
+
+    picked.pop(me, None)
+    return list(picked.items())
+
+
+def add_notify(data, notify):
+    if notify:
+        data["notifiedUserId[]"] = [str(uid) for uid, _ in notify]
+
+
+def print_notify(notify):
+    if notify:
+        print("お知らせ先: " + ", ".join(name or str(uid) for uid, name in notify))
+
+
 def cmd_comment(a):
     require_yes(a, "コメント投稿")
     body = a.text
     if body == "-":
         body = sys.stdin.read()
-    r = api("POST", f"/issues/{urllib.parse.quote(a.key)}/comments", data={"content": body})
+    notify = resolve_notify_users(a.key, body, a.notify, auto=not a.no_auto_notify)
+    data = {"content": body}
+    add_notify(data, notify)
+    r = api("POST", f"/issues/{urllib.parse.quote(a.key)}/comments", data=data)
     print(f"投稿しました: comment #{r['id']} on {a.key}")
+    print_notify(notify)
     print(issue_url(a.key))
 
 
@@ -728,6 +790,11 @@ def cmd_update(a):
         if not body.strip():
             die("コメント本文が空です ('-' は標準入力から読みます。本文を流し込んでください)")
         data["comment"] = body
+    notify = []
+    if a.comment or a.notify:
+        notify = resolve_notify_users(a.key, data.get("comment"), a.notify,
+                                      auto=not a.no_auto_notify)
+        add_notify(data, notify)
     if a.assignee:
         data["assigneeId"] = resolve_user_id(a.key, a.assignee)
     if a.assignee_me:
@@ -738,6 +805,7 @@ def cmd_update(a):
         die("更新項目がありません (--status / --comment / --assignee-me / --due)")
     r = api("PATCH", f"/issues/{urllib.parse.quote(a.key)}", data=data)
     print(f"更新しました: {r['issueKey']} 状態={dget(r,'status','name')}")
+    print_notify(notify)
     print(issue_url(r["issueKey"]))
 
 
@@ -897,6 +965,10 @@ def build_parser():
     s = sub.add_parser("comment", help="[書込] 課題にコメント投稿")
     s.add_argument("key")
     s.add_argument("text", help="本文 ('-' で標準入力)")
+    s.add_argument("--notify", action="append", metavar="NAME",
+                   help="お知らせ先 (名前 / ログインID / userId、複数回指定可)。本文の @名前 は自動で加わる")
+    s.add_argument("--no-auto-notify", action="store_true",
+                   help="本文の @名前 をお知らせ先に自動で加えない")
     s.add_argument("--yes", action="store_true", help="実行確認 (必須)")
     s.set_defaults(func=cmd_comment)
 
@@ -904,6 +976,10 @@ def build_parser():
     s.add_argument("key")
     s.add_argument("--status", help="状態名 (例 処理中) または statusId")
     s.add_argument("--comment", help="同時に付けるコメント ('-' で標準入力から読む)")
+    s.add_argument("--notify", action="append", metavar="NAME",
+                   help="お知らせ先 (名前 / ログインID / userId、複数回指定可)。コメントの @名前 は自動で加わる")
+    s.add_argument("--no-auto-notify", action="store_true",
+                   help="コメントの @名前 をお知らせ先に自動で加えない")
     s.add_argument("--assignee", help="担当者 (プロジェクト参加者の名前 または userId)")
     s.add_argument("--assignee-me", action="store_true", help="担当者を自分にする")
     s.add_argument("--due", help="期限日 yyyy-MM-dd")
