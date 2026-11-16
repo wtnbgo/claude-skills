@@ -679,16 +679,27 @@ def require_yes(a, what):
         die(f"書き込み操作 ({what}) には --yes が必要です。ユーザの明示的な指示なしに実行しないこと。")
 
 
-def resolve_notify_users(issue_key, body, names, auto=True):
-    """コメントのお知らせ先 (notifiedUserId[]) を決める。
+def read_stdin():
+    """標準入力を UTF-8 として読む。
 
-    本文に "@名前" と書いただけでは Backlog はお知らせを送らず、表示もリンクにならない。
-    Web 画面の @ 補完はお知らせ先も同時に設定しているので、API では
-    notifiedUserId[] を明示して渡す必要がある。
+    sys.stdin は Windows だとロケールの文字コード (cp932) で解釈されるため、
+    UTF-8 の本文を流し込むと化けて、送信時に UnicodeEncodeError になる。
+    """
+    return sys.stdin.buffer.read().decode("utf-8-sig")
+
+
+def resolve_notify_users(issue_key, body, names, auto=True):
+    """コメントのメンションとお知らせ先 (notifiedUserId[]) を決める。
+
+    本文に "@名前" と書いただけでは Backlog はリンクにもお知らせにもならない。
+    Web 画面の @ 補完は、送信時に本文の "@名前" を "<@U{数値id}>" という
+    メンション書式に置き換えている (API で本文を読むと "@名前" に戻して返すので、
+    取得結果を比べても違いは見えない)。API でも同じ書式で送ればリンクになる。
 
     - names: --notify で指定された名前 (完全一致 → 部分一致) または数値 id
-    - auto: 本文中の "@名前" / "@ログインID" をプロジェクト参加者と照合して加える
-    戻り値は [(id, 表示名), ...]。自分自身は除く。
+    - auto: 本文中の "@名前" / "@ログインID" をプロジェクト参加者と照合し、
+      "<@U{id}>" に置き換えたうえでお知らせ先にも加える
+    戻り値は ([(id, 表示名), ...], 置き換え後の本文)。お知らせ先から自分自身は除く。
     """
     proj = issue_key.rsplit("-", 1)[0]
     users = api("GET", f"/projects/{proj}/users")
@@ -710,21 +721,26 @@ def resolve_notify_users(issue_key, body, names, auto=True):
         picked[hit[0]["id"]] = hit[0].get("name")
 
     if auto and body:
-        # 長い名前から照合し、照合した部分は消す ("@谷" が "@谷昭仁" に誤一致しないように)
-        rest = body
-        cands = []
+        # 長い名前を先に並べた 1 本の正規表現で一度に置き換える
+        # ("@谷" が "@谷昭仁" に誤一致しない / 置き換え後の書式を再照合しない)
+        bylabel = {}
         for u in users:
             for label in (u.get("name"), u.get("userId")):
                 if label:
-                    cands.append((label, u))
-        for label, u in sorted(cands, key=lambda c: -len(c[0])):
-            tag = "@" + label
-            if tag in rest:
+                    bylabel.setdefault(label, u)
+        if bylabel:
+            pat = re.compile("@(" + "|".join(
+                re.escape(k) for k in sorted(bylabel, key=len, reverse=True)) + ")")
+
+            def to_mention(m):
+                u = bylabel[m.group(1)]
                 picked[u["id"]] = u.get("name")
-                rest = rest.replace(tag, "")
+                return f"<@U{u['id']}>"
+
+            body = pat.sub(to_mention, body)
 
     picked.pop(me, None)
-    return list(picked.items())
+    return list(picked.items()), body
 
 
 def add_notify(data, notify):
@@ -741,8 +757,8 @@ def cmd_comment(a):
     require_yes(a, "コメント投稿")
     body = a.text
     if body == "-":
-        body = sys.stdin.read()
-    notify = resolve_notify_users(a.key, body, a.notify, auto=not a.no_auto_notify)
+        body = read_stdin()
+    notify, body = resolve_notify_users(a.key, body, a.notify, auto=not a.no_auto_notify)
     data = {"content": body}
     add_notify(data, notify)
     r = api("POST", f"/issues/{urllib.parse.quote(a.key)}/comments", data=data)
@@ -786,14 +802,16 @@ def cmd_update(a):
         # cmd_comment と同じく "-" は標準入力から読む。
         # ここが素通しだったため本文がリテラル "-" のまま投稿され、
         # 説明文が相手へ一切届かない事故が起きた (2026-08-17)。
-        body = sys.stdin.read() if a.comment == "-" else a.comment
+        body = read_stdin() if a.comment == "-" else a.comment
         if not body.strip():
             die("コメント本文が空です ('-' は標準入力から読みます。本文を流し込んでください)")
         data["comment"] = body
     notify = []
     if a.comment or a.notify:
-        notify = resolve_notify_users(a.key, data.get("comment"), a.notify,
-                                      auto=not a.no_auto_notify)
+        notify, body = resolve_notify_users(a.key, data.get("comment"), a.notify,
+                                            auto=not a.no_auto_notify)
+        if body:
+            data["comment"] = body
         add_notify(data, notify)
     if a.assignee:
         data["assigneeId"] = resolve_user_id(a.key, a.assignee)
@@ -837,7 +855,7 @@ def cmd_create(a):
     if not ph:
         die(f"優先度 '{a.priority}' が見つかりません: {[p['name'] for p in pris]}")
 
-    body = sys.stdin.read() if a.description == "-" else (a.description or "")
+    body = read_stdin() if a.description == "-" else (a.description or "")
 
     data = {
         "projectId":   str(pj["id"]),

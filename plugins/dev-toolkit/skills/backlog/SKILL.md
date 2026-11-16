@@ -141,7 +141,7 @@ python "$S" --json mine | ...                   # 機械処理したいときだ
 ```bash
 python "$S" comment PROJ-123 "修正を r975 でコミットしました" --yes
 python "$S" comment PROJ-123 - --yes < body.txt          # 長文は標準入力
-python "$S" comment PROJ-123 "@山田太郎 確認お願いします" --yes   # 本文の @名前 は自動でお知らせ先になる
+python "$S" comment PROJ-123 "@山田太郎 確認お願いします" --yes   # 本文の @名前 はメンション書式に置き換えてお知らせ先にも入れる
 python "$S" comment PROJ-123 "確認お願いします" --notify 山田太郎 --notify 佐藤 --yes
 python "$S" update PROJ-123 --status 処理中 --comment "着手します" --yes
 
@@ -207,10 +207,12 @@ API リファレンス: https://developer.nulab.com/ja/docs/backlog/
 - **レート制限**は 1 分あたり API キー単位。一覧を舐めるループを書くなら間隔を空ける。
 - `notifications` の `reason` は数値コード。スクリプトが日本語に変換して表示する。
 - **本文に `@名前` と書いただけでは、相手にお知らせが届かず、表示もリンクにならない**。
-  Web 画面の @ 補完はお知らせ先 (`notifiedUserId[]`) も同時に設定しているが、API では明示が必要。
+  Web 画面の @ 補完は、送信時に本文の `@名前` を **`<@U{数値のユーザ id}>`** という書式に置き換えている
+  (例 `<@U1423216> 様 …`)。API で本文を取得すると `@名前` に戻して返すので、取得結果を比べても違いは見えない。
   `comment` / `update --comment` は本文の `@名前` (表示名またはログイン ID) をプロジェクト参加者と
-  照合して `notifiedUserId[]` に自動で入れる (自分は除く)。本文に書かずに送るなら `--notify 名前`、
-  自動判定を止めるなら `--no-auto-notify`。投稿後に「お知らせ先:」として誰に送ったかを表示する。
+  照合し、この書式に置き換えたうえで `notifiedUserId[]` にも入れる (お知らせ先から自分は除く)。
+  本文に書かずに送るなら `--notify 名前`、置き換えとお知らせを止めるなら `--no-auto-notify`。
+  投稿後に「お知らせ先:」として誰に送ったかを表示する。
 - 期限切れ課題を出したいときは `dueDateUntil` を使う:
   `raw /issues -q "assigneeId[]=<id>" -q dueDateUntil=2026-08-14 -q "statusId[]=1" -q "statusId[]=2"`
 
